@@ -10,3 +10,15 @@ frontend/   React + Vite app (src/), package.json, Dockerfile
 
 - The frontend never receives provider credentials; Groq/SerpAPI/GitHub calls happen
   only in the backend.
+
+
+##Running the project
+#Docker
+1.Running the container
+docker compose up
+2.Stop the container from running 
+docker compose down
+3.Check logs and follow 
+docker compose logs -f
+
+
