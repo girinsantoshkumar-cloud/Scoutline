@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -60,6 +62,73 @@ class SearchRecord(BaseModel):
 
 
 searches: dict[str, SearchRecord] = {}
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+#
+# Consistent with the project's "database intentionally deferred" design, users
+# live in an in-memory store. Passwords are salted + hashed with PBKDF2-HMAC
+# (stdlib only, no extra dependencies) and API calls use opaque bearer tokens
+# kept in a server-side session map.
+# ---------------------------------------------------------------------------
+class Credentials(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    password: str = Field(min_length=6, max_length=200)
+
+
+class RegisterRequest(Credentials):
+    name: str = Field(min_length=2, max_length=120)
+
+
+class User(BaseModel):
+    id: str
+    name: str
+    email: str
+    created_at: str
+
+
+class UserPublic(BaseModel):
+    user: User
+    token: str
+
+
+users: dict[str, dict[str, Any]] = {}
+sessions: dict[str, str] = {}
+
+
+def _hash_password(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), 120_000).hex()
+
+
+def _make_user(email: str, name: str, password: str) -> dict[str, Any]:
+    salt = secrets.token_hex(16)
+    return {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "email": email,
+        "salt": salt,
+        "password_hash": _hash_password(password, salt),
+        "created_at": now(),
+    }
+
+
+def _issue_token(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    sessions[token] = user_id
+    return token
+
+
+def _current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Authentication required.")
+    token = authorization.split(" ", 1)[1].strip()
+    user_id = sessions.get(token)
+    if not user_id or not any(user["id"] == user_id for user in users.values()):
+        raise HTTPException(401, "Session is not valid. Please sign in again.")
+    return next(user for user in users.values() if user["id"] == user_id)
+
+
 
 
 def now() -> str:
@@ -224,14 +293,45 @@ async def health() -> dict[str, Any]:
     return {"ok": True, "providers": {"groq": bool(settings.groq_api_key), "serpapi": bool(settings.serpapi_key), "github": bool(settings.github_token)}, "storage": "in-memory session store (database intentionally deferred)"}
 
 
+@app.post("/api/auth/register", status_code=201, response_model=UserPublic)
+async def register(request: RegisterRequest) -> UserPublic:
+    email = request.email.strip().lower()
+    if any(user["email"] == email for user in users.values()):
+        raise HTTPException(409, "An account with this email already exists. Try signing in.")
+    user = _make_user(email, request.name.strip(), request.password)
+    users[user["id"]] = user
+    return UserPublic(user=User(**{key: user[key] for key in ("id", "name", "email", "created_at")}), token=_issue_token(user["id"]))
+
+
+@app.post("/api/auth/login", response_model=UserPublic)
+async def login(request: Credentials) -> UserPublic:
+    email = request.email.strip().lower()
+    user = next((candidate for candidate in users.values() if candidate["email"] == email), None)
+    if not user or not secrets.compare_digest(user["password_hash"], _hash_password(request.password, user["salt"])):
+        raise HTTPException(401, "Incorrect email or password.")
+    return UserPublic(user=User(**{key: user[key] for key in ("id", "name", "email", "created_at")}), token=_issue_token(user["id"]))
+
+
+@app.get("/api/auth/me", response_model=User)
+async def me(current: dict[str, Any] = Depends(_current_user)) -> User:
+    return User(**{key: current[key] for key in ("id", "name", "email", "created_at")})
+
+
+@app.post("/api/auth/logout", status_code=204)
+async def logout(current: dict[str, Any] = Depends(_current_user), authorization: str | None = Header(default=None)):
+    if authorization:
+        token = authorization.split(" ", 1)[1].strip()
+        sessions.pop(token, None)
+
+
 @app.get("/api/dashboard")
-async def dashboard() -> dict[str, Any]:
+async def dashboard(_: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
     items = list(searches.values())
     return {"stats": {"candidates_found": sum(len(item.candidates) for item in items), "searches_completed": sum(item.status == "completed" for item in items), "candidates_investigated": sum(len(item.candidates) for item in items), "average_evidence_coverage": round(sum((candidate["evidence_coverage"] for item in items for candidate in item.candidates), 0) / max(1, sum(len(item.candidates) for item in items)))}, "recent_searches": [item.model_dump() for item in sorted(items, key=lambda item: item.created_at, reverse=True)[:8]]}
 
 
 @app.post("/api/search", status_code=202)
-async def create_search(request: SearchRequest, background_tasks: BackgroundTasks) -> SearchRecord:
+async def create_search(request: SearchRequest, background_tasks: BackgroundTasks, _: dict[str, Any] = Depends(_current_user)) -> SearchRecord:
     search_id = str(uuid.uuid4())
     record = SearchRecord(id=search_id, title=request.title, description=request.description, count=request.count, created_at=now())
     searches[search_id] = record
@@ -240,21 +340,21 @@ async def create_search(request: SearchRequest, background_tasks: BackgroundTask
 
 
 @app.get("/api/search/{search_id}")
-async def get_search(search_id: str) -> SearchRecord:
+async def get_search(search_id: str, _: dict[str, Any] = Depends(_current_user)) -> SearchRecord:
     if search_id not in searches:
         raise HTTPException(404, "Search not found")
     return searches[search_id]
 
 
 @app.get("/api/search/{search_id}/candidates")
-async def get_candidates(search_id: str) -> list[dict[str, Any]]:
+async def get_candidates(search_id: str, _: dict[str, Any] = Depends(_current_user)) -> list[dict[str, Any]]:
     if search_id not in searches:
         raise HTTPException(404, "Search not found")
     return searches[search_id].candidates
 
 
 @app.get("/api/candidates/{candidate_id}")
-async def get_candidate(candidate_id: str) -> dict[str, Any]:
+async def get_candidate(candidate_id: str, _: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
     for search in searches.values():
         for candidate in search.candidates:
             if candidate["id"] == candidate_id:
