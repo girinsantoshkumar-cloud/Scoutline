@@ -9,7 +9,7 @@ The reviewed `main` branch contains a FastAPI backend in `backend/main.py` and a
 - Users, bearer sessions, searches, progress events, and results are stored in Python dictionaries. A backend restart loses them, and multiple replicas do not share state.
 - Search execution uses FastAPI `BackgroundTasks`; work is not durable and cannot be recovered after a worker/process crash.
 - The original frontend container ran Vite's development server. Production now uses a multi-stage build and Nginx.
-- The original dependencies included frontend packages marked `latest`; exact package versions are now specified, but a committed lockfile is still recommended.
+- The original dependencies included frontend packages marked `latest`; exact package versions are now specified, and the lockfile is committed for reproducible installs.
 - There was no baseline backend test suite in the reviewed tree. Initial API smoke/authentication tests have been added.
 - No deployment target or Jenkins credentials were configured. CI builds and scans; it does not deploy.
 
