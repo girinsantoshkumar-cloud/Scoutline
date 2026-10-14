@@ -6,15 +6,18 @@ import json
 import os
 import re
 import secrets
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 
 class Settings(BaseSettings):
@@ -27,6 +30,50 @@ class Settings(BaseSettings):
 
 settings = Settings()
 app = FastAPI(title="Scoutline API", version="0.1.0")
+
+HTTP_REQUESTS = Counter(
+    "scoutline_http_requests_total",
+    "Total HTTP requests handled by Scoutline",
+    ("method", "route", "status"),
+)
+HTTP_REQUEST_DURATION = Histogram(
+    "scoutline_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ("method", "route"),
+)
+
+
+@app.middleware("http")
+async def observe_http_requests(request: Request, call_next):
+    # Metrics endpoint is excluded to avoid self-observation noise.
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    started = time.perf_counter()
+    status = "500"
+    try:
+        response = await call_next(request)
+        status = str(response.status_code)
+        return response
+    finally:
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", "unmatched")
+        HTTP_REQUESTS.labels(request.method, route_template, status).inc()
+        HTTP_REQUEST_DURATION.labels(request.method, route_template).observe(
+            time.perf_counter() - started
+        )
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/api/ready")
+async def readiness() -> dict[str, Any]:
+    # This checks API process readiness only. Persistence is currently in-memory;
+    # production readiness must include database checks after persistence is added.
+    return {"ready": True, "storage": "in-memory"}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.cors_origins.split(",")],

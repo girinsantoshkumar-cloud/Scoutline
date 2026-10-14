@@ -1,14 +1,24 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./backend
     env_file: ./backend/.env
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: build
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
     depends_on:
       - backend
     environment:
