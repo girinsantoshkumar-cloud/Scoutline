@@ -48,7 +48,7 @@ pipeline {
                 sh '''
                     set -eu
                     cd frontend
-                    npm install --no-audit --no-fund
+                    npm ci --no-audit --no-fund
                     npm run build
                 '''
             }
