@@ -6,7 +6,7 @@ Use a dedicated, controlled Jenkins build agent with:
 
 - Git
 - Python 3.12 and venv support
-- Node.js 20 and npm
+- Node.js 22.12+ (or 20.19+) and npm
 - Docker Engine plus Docker Compose v2
 - `gitleaks` v8+
 - `trivy`
