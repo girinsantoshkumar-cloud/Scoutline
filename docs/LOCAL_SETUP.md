@@ -37,7 +37,7 @@ Open http://localhost:8080. Nginx serves built static assets and proxies API cal
 Stop it:
 
 ```bash
-docker compose -f docker-compose.production.yml down
+GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD" docker compose -f docker-compose.production.yml down
 ```
 
 ## Run local backend tests
