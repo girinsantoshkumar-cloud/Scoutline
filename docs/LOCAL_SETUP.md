@@ -26,9 +26,10 @@ Open the Vite frontend at http://localhost:5173 and API docs at http://localhost
 
 ## Run the production-like stack
 
-Build and start the frontend and backend:
+Set a strong local Grafana password in each shell session before running this Compose file; Compose validates the password setting even when the monitoring profile is not enabled:
 
 ```bash
+export GRAFANA_ADMIN_PASSWORD='replace-with-a-strong-local-password'
 docker compose -f docker-compose.production.yml up --build -d frontend backend
 ```
 
@@ -37,7 +38,7 @@ Open http://localhost:8080. Nginx serves built static assets and proxies API cal
 Stop it:
 
 ```bash
-GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD" docker compose -f docker-compose.production.yml down
+docker compose -f docker-compose.production.yml down
 ```
 
 ## Run local backend tests
@@ -62,7 +63,7 @@ docker compose -f docker-compose.production.yml --profile monitoring up --build 
 - Prometheus: http://127.0.0.1:9090
 - Grafana: http://127.0.0.1:3000 (default username `admin`, unless `GRAFANA_ADMIN_USER` is set)
 
-Do not use the example password in a real environment. Monitoring data is stored in named Docker volumes. To stop services without deleting metrics/dashboard state, run `docker compose -f docker-compose.production.yml --profile monitoring down`. Do not add `-v` unless you intend to delete those volumes.
+Do not use the example password in a real environment. Monitoring data is stored in named Docker volumes. To stop services without deleting metrics/dashboard state, run `docker compose -f docker-compose.production.yml --profile monitoring down` in a shell where `GRAFANA_ADMIN_PASSWORD` is set. Do not add `-v` unless you intend to delete those volumes.
 
 ## Troubleshooting
 
