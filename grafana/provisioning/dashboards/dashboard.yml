@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Scoutline
+    orgId: 1
+    folder: Scoutline
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards
