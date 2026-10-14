@@ -4,7 +4,7 @@
 
 - Docker Engine and Docker Compose v2
 - Git
-- Optional for tests outside Docker: Python 3.12+ and Node.js 20+
+- Optional for tests outside Docker: Python 3.12+; Node.js 22.12+ (or 20.19+) if running the frontend toolchain locally
 
 ## Configure provider credentials
 
