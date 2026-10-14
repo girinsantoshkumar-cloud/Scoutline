@@ -1,8 +1,26 @@
+# Secrets and local configuration
 .env
-.venv
-__pycache__
-*.pyc
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# Python
+.venv/
+.venv-ci/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
 *.tsbuildinfo
-node_modules
-dist
+npm-debug.log*
+
+# Reports and build artifacts
+reports/
+*.log
 .DS_Store
